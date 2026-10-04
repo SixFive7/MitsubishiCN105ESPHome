@@ -153,13 +153,33 @@ void CN105Climate::getPowerFromResponsePacket() {
             }
         }
     }
-    if (this->Sub_mode_sensor_ != nullptr && (!this->currentSettings.sub_mode || strcmp(receivedSettings.sub_mode, this->currentSettings.sub_mode) != 0)) {
+    // The sub modes feed the climate action (hardware AUTO direction, PREHEAT), so keep
+    // them whether or not their diagnostic sensors are configured.
+    const bool sub_mode_changed = !this->currentSettings.sub_mode ||
+        strcmp(receivedSettings.sub_mode, this->currentSettings.sub_mode) != 0;
+    if (sub_mode_changed) {
         this->currentSettings.sub_mode = receivedSettings.sub_mode;
-        this->Sub_mode_sensor_->publish_state(receivedSettings.sub_mode);
+        if (this->Sub_mode_sensor_ != nullptr) {
+            this->Sub_mode_sensor_->publish_state(receivedSettings.sub_mode);
+        }
     }
-    if (this->Auto_sub_mode_sensor_ != nullptr && (!this->currentSettings.auto_sub_mode || strcmp(receivedSettings.auto_sub_mode, this->currentSettings.auto_sub_mode) != 0)) {
+    const bool auto_sub_mode_changed = !this->currentSettings.auto_sub_mode ||
+        strcmp(receivedSettings.auto_sub_mode, this->currentSettings.auto_sub_mode) != 0;
+    if (auto_sub_mode_changed) {
         this->currentSettings.auto_sub_mode = receivedSettings.auto_sub_mode;
-        this->Auto_sub_mode_sensor_->publish_state(receivedSettings.auto_sub_mode);
+        if (this->Auto_sub_mode_sensor_ != nullptr) {
+            this->Auto_sub_mode_sensor_->publish_state(receivedSettings.auto_sub_mode);
+        }
+    }
+
+    // This packet arrives apart from the settings and status packets that otherwise
+    // refresh the action, so refresh it here when a sub mode changes.
+    if (sub_mode_changed || auto_sub_mode_changed) {
+        const climate::ClimateAction previous_action = this->action;
+        this->updateAction();
+        if (this->action != previous_action) {
+            this->publish_state();
+        }
     }
 }
 
