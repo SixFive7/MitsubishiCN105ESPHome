@@ -281,4 +281,37 @@ inline bool is_temp_byte_unused(uint8_t data11) {
     return data11 == 0x80;
 }
 
+// ════════════════════════════════════════════════════════════════
+// Hardware AUTO direction (0x09 status packet, pure, testable)
+// ════════════════════════════════════════════════════════════════
+
+/// Heating or cooling, as decided by the unit itself while it runs hardware
+/// AUTO (HA HEAT_COOL or AUTO).
+enum class AutoDirection : uint8_t {
+    UNKNOWN,  ///< The unit does not say: fall back to the setpoint comparison.
+    HEATING,
+    COOLING,
+};
+
+/// Direction the unit reports in its 0x09 status packet.
+///
+/// Takes the decoded SUB_MODE_MAP / AUTO_SUB_MODE_MAP strings (nullptr while
+/// nothing has been received yet):
+///   - sub mode "PREHEAT": the start of a heating cycle, so heating.
+///   - auto sub mode "AUTO_HEAT" / "AUTO_COOL": the unit's own heat/cool choice.
+///     It stays set while the compressor rests, so it gives the direction only;
+///     whether the unit is active comes from the operating flag (0x06).
+///   - anything else ("AUTO_OFF", "AUTO_LEADER", the MFZ states "AUTO_INACTIVE",
+///     "AUTO_IDLE" and "AUTO_ACTIVE", which carry no direction): UNKNOWN.
+inline AutoDirection auto_direction_from_sub_modes(const char* sub_mode, const char* auto_sub_mode) {
+    if (sub_mode != nullptr && std::strcmp(sub_mode, "PREHEAT") == 0) {
+        return AutoDirection::HEATING;
+    }
+    if (auto_sub_mode != nullptr) {
+        if (std::strcmp(auto_sub_mode, "AUTO_HEAT") == 0) return AutoDirection::HEATING;
+        if (std::strcmp(auto_sub_mode, "AUTO_COOL") == 0) return AutoDirection::COOLING;
+    }
+    return AutoDirection::UNKNOWN;
+}
+
 }  // namespace cn105_protocol

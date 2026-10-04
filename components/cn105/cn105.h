@@ -431,6 +431,7 @@ namespace esphome {
 
         //void statusChanged();
         void updateAction();
+        bool setActionFromHardwareAutoDirection();
         void setActionIfOperatingTo(climate::ClimateAction action);
         void setActionIfOperatingAndCompressorIsActiveTo(climate::ClimateAction action);
         void hpPacketDebug(const uint8_t* packet, unsigned int length, const char* packetDirection, const char* log_prefix = "");

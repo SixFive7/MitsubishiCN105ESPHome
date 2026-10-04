@@ -576,6 +576,26 @@ void CN105Climate::setActionIfOperatingAndCompressorIsActiveTo(climate::ClimateA
     }
 }
 
+/**
+ * In hardware AUTO (HA HEAT_COOL or AUTO) the unit decides itself whether to heat or cool.
+ * When it reports that direction (0x09 auto sub mode, or PREHEAT), use it, and take active
+ * versus idle from the operating flag, exactly as in HEAT and COOL.
+ * Returns false when the unit gives no direction, so the caller keeps its setpoint estimate.
+ */
+bool CN105Climate::setActionFromHardwareAutoDirection() {
+    switch (cn105_protocol::auto_direction_from_sub_modes(this->currentSettings.sub_mode,
+        this->currentSettings.auto_sub_mode)) {
+    case cn105_protocol::AutoDirection::HEATING:
+        this->setActionIfOperatingTo(climate::CLIMATE_ACTION_HEATING);
+        return true;
+    case cn105_protocol::AutoDirection::COOLING:
+        this->setActionIfOperatingTo(climate::CLIMATE_ACTION_COOLING);
+        return true;
+    default:
+        return false;
+    }
+}
+
 //inside the below we could implement an internal only HEAT_COOL doing the math with an offset or something
 void CN105Climate::updateAction() {
     ESP_LOGV(TAG, "updating action back to espHome...");
@@ -592,6 +612,10 @@ void CN105Climate::updateAction() {
         this->setActionIfOperatingTo(climate::CLIMATE_ACTION_COOLING);
         break;
     case climate::CLIMATE_MODE_HEAT_COOL:
+        if (this->setActionFromHardwareAutoDirection()) {
+            break;
+        }
+        // The unit gives no direction: estimate it from the setpoints.
         if (this->traits().supports_mode(climate::CLIMATE_MODE_HEAT) &&
             this->traits().supports_mode(climate::CLIMATE_MODE_COOL)) {
             // Logique Deadband pour HEAT_COOL
@@ -608,7 +632,10 @@ void CN105Climate::updateAction() {
         break;
 
     case climate::CLIMATE_MODE_AUTO:
-
+        if (this->setActionFromHardwareAutoDirection()) {
+            break;
+        }
+        // The unit gives no direction: estimate it from the setpoints.
         if (this->traits().supports_mode(climate::CLIMATE_MODE_HEAT) &&
             this->traits().supports_mode(climate::CLIMATE_MODE_COOL)) {
             // If the unit supports both heating and cooling
