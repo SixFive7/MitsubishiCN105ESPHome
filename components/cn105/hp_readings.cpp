@@ -591,7 +591,8 @@ void CN105Climate::publishStateToHA(heatpumpSettings& settings) {
 
     this->updateAction();       // update action info on HA climate component
 
-    if (this->wantedSettings.fan == nullptr) {  // to prevent overwriting a user demand
+    if (this->wantedSettings.fan == nullptr &&  // to prevent overwriting a user demand
+        !this->shouldIgnoreIncomingFan(settings)) {
         checkFanSettings(settings);
     }
 
@@ -910,5 +911,23 @@ bool CN105Climate::shouldIgnoreIncomingVane(const heatpumpSettings& settings) co
     if (strcmp(settings.vane, this->wantedSettings.last_user_vane) == 0) return false;
     ESP_LOGD(LOG_SETTINGS_TAG, "Vane grace: ignoring %s, user sent %s",
         settings.vane, this->wantedSettings.last_user_vane);
+    return true;
+}
+
+// ════════════════════════════════════════════════════════════════
+// Composed method helpers — fan grace window
+// ════════════════════════════════════════════════════════════════
+
+// The sent fan speed becomes currentSettings.fan (publishWantedSettingsStateToHA), so a
+// report that differs from it is applied, which is how a refused speed reaches HA. Right
+// after a command the unit may still report its old speed, so a differing report is held
+// back for the grace window; the next report after the window is applied.
+bool CN105Climate::shouldIgnoreIncomingFan(const heatpumpSettings& settings) const {
+    if (!cn105_protocol::fan_disagrees_within_grace(settings.fan, this->wantedSettings.last_user_fan,
+        this->wantedSettings.last_user_fan_ms, CUSTOM_MILLIS, RECEIVED_SETPOINT_GRACE_WINDOW_MS)) {
+        return false;
+    }
+    ESP_LOGD(LOG_SETTINGS_TAG, "Fan grace: ignoring %s, user sent %s",
+        settings.fan, this->wantedSettings.last_user_fan);
     return true;
 }

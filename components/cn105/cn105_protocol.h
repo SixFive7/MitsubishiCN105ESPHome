@@ -276,6 +276,16 @@ inline bool vane_disagrees_within_grace(
     return std::strcmp(incoming, last_user) != 0;
 }
 
+/// Check if incoming fan speed disagrees with last user command within grace window.
+/// Same rule as vane_disagrees_within_grace(), applied to FAN_MAP strings.
+/// @return true if incoming should be ignored (for now)
+inline bool fan_disagrees_within_grace(
+    const char* incoming, const char* last_user, uint32_t last_user_ms,
+    uint32_t now_ms, uint32_t grace_window_ms
+) {
+    return vane_disagrees_within_grace(incoming, last_user, last_user_ms, now_ms, grace_window_ms);
+}
+
 /// Check if data[11]=0x80 indicates unused temperature slot.
 inline bool is_temp_byte_unused(uint8_t data11) {
     return data11 == 0x80;
