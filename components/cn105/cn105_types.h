@@ -198,7 +198,8 @@ struct wantedHeatpumpSettings : heatpumpSettings {
 
     void resetSettings() {
         // Preserve last_user_* fields across reset — they represent the user's
-        // intended state and should be re-sent on subsequent SET packets.
+        // intended state. The vane is re-sent on subsequent SET packets; the
+        // temperature and the fan speed only feed their grace windows.
         heatpumpSettings::resetSettings();
         hasChanged = false;
         hasBeenSent = false;
