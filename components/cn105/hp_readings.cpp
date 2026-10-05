@@ -175,6 +175,8 @@ void CN105Climate::getPowerFromResponsePacket() {
     // This packet arrives apart from the settings and status packets that otherwise
     // refresh the action, so refresh it here when a sub mode changes.
     if (sub_mode_changed || auto_sub_mode_changed) {
+        this->auto_direction_ = cn105_protocol::next_auto_direction(this->auto_direction_,
+            this->currentSettings.sub_mode, this->currentSettings.auto_sub_mode);
         const climate::ClimateAction previous_action = this->action;
         this->updateAction();
         if (this->action != previous_action) {

@@ -578,13 +578,13 @@ void CN105Climate::setActionIfOperatingAndCompressorIsActiveTo(climate::ClimateA
 
 /**
  * In hardware AUTO (HA HEAT_COOL or AUTO) the unit decides itself whether to heat or cool.
- * When it reports that direction (0x09 auto sub mode, or PREHEAT), use it, and take active
- * versus idle from the operating flag, exactly as in HEAT and COOL.
- * Returns false when the unit gives no direction, so the caller keeps its setpoint estimate.
+ * Use the direction it last reported in this AUTO session (0x09 auto sub mode, or PREHEAT;
+ * see cn105_protocol::next_auto_direction), and take active versus idle from the operating
+ * flag, exactly as in HEAT and COOL.
+ * Returns false when no direction has been seen, so the caller keeps its setpoint estimate.
  */
 bool CN105Climate::setActionFromHardwareAutoDirection() {
-    switch (cn105_protocol::auto_direction_from_sub_modes(this->currentSettings.sub_mode,
-        this->currentSettings.auto_sub_mode)) {
+    switch (this->auto_direction_) {
     case cn105_protocol::AutoDirection::HEATING:
         this->setActionIfOperatingTo(climate::CLIMATE_ACTION_HEATING);
         return true;

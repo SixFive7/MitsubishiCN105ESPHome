@@ -509,6 +509,9 @@ namespace esphome {
 
         // All fields are default-initialized via heatpumpStatus struct defaults (NAN, false, etc.)
         heatpumpStatus currentStatus{};
+
+        // Last heat/cool direction the unit reported in this hardware AUTO session (0x09).
+        cn105_protocol::AutoDirection auto_direction_{ cn105_protocol::AutoDirection::UNKNOWN };
         heatpumpFunctions functions;
 
         bool use_temperature_encoding_b_ = false;

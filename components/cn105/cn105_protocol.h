@@ -288,30 +288,46 @@ inline bool is_temp_byte_unused(uint8_t data11) {
 /// Heating or cooling, as decided by the unit itself while it runs hardware
 /// AUTO (HA HEAT_COOL or AUTO).
 enum class AutoDirection : uint8_t {
-    UNKNOWN,  ///< The unit does not say: fall back to the setpoint comparison.
+    UNKNOWN,  ///< No direction seen in this AUTO session: fall back to the setpoint comparison.
     HEATING,
     COOLING,
 };
 
-/// Direction the unit reports in its 0x09 status packet.
+/// Next remembered AUTO direction, from the 0x09 status packet.
 ///
-/// Takes the decoded SUB_MODE_MAP / AUTO_SUB_MODE_MAP strings (nullptr while
-/// nothing has been received yet):
-///   - sub mode "PREHEAT": the start of a heating cycle, so heating.
-///   - auto sub mode "AUTO_HEAT" / "AUTO_COOL": the unit's own heat/cool choice.
-///     It stays set while the compressor rests, so it gives the direction only;
-///     whether the unit is active comes from the operating flag (0x06).
-///   - anything else ("AUTO_OFF", "AUTO_LEADER", the MFZ states "AUTO_INACTIVE",
-///     "AUTO_IDLE" and "AUTO_ACTIVE", which carry no direction): UNKNOWN.
-inline AutoDirection auto_direction_from_sub_modes(const char* sub_mode, const char* auto_sub_mode) {
+/// Byte 5 of the 0x09 reply (AUTO_SUB_MODE_MAP), as observed on MSZ-AP wall units
+/// (HA history of two units over 10 days, plus a DEBUG-logged night test):
+///   0x00 "AUTO_OFF"    AUTO not selected (every other mode; brief blips at mode changes).
+///   0x01 "AUTO_COOL"   AUTO chose cooling: from the decision until the compressor runs.
+///   0x02 "AUTO_HEAT"   AUTO chose heating: stays set through the whole heating session,
+///                      compressor running or resting.
+///   0x03 "AUTO_LEADER" seen only after AUTO_COOL: from the moment the compressor started
+///                      cooling, through the whole cooling session, and on after a setpoint
+///                      change while the unit paused (also reported while cooling in #633).
+///                      It is not a direction of its own, so the last direction is kept.
+///   0x40/0x41/0x43     MFZ bitfield (AUTO_INACTIVE / AUTO_IDLE / AUTO_ACTIVE): no direction;
+///                      0x40 means AUTO is not selected.
+/// The sub mode "PREHEAT" (byte 3) only occurs when a heating cycle starts.
+///
+/// Takes the decoded SUB_MODE_MAP / AUTO_SUB_MODE_MAP strings (nullptr while nothing has
+/// been received yet). A direction value replaces `previous`, "AUTO not selected" clears
+/// it so a new AUTO session starts without one, and anything else keeps `previous`.
+/// The direction is not the activity: whether the unit heats or cools right now comes
+/// from the operating flag (0x06).
+inline AutoDirection next_auto_direction(AutoDirection previous, const char* sub_mode,
+                                         const char* auto_sub_mode) {
     if (sub_mode != nullptr && std::strcmp(sub_mode, "PREHEAT") == 0) {
         return AutoDirection::HEATING;
     }
     if (auto_sub_mode != nullptr) {
         if (std::strcmp(auto_sub_mode, "AUTO_HEAT") == 0) return AutoDirection::HEATING;
         if (std::strcmp(auto_sub_mode, "AUTO_COOL") == 0) return AutoDirection::COOLING;
+        if (std::strcmp(auto_sub_mode, "AUTO_OFF") == 0 ||
+            std::strcmp(auto_sub_mode, "AUTO_INACTIVE") == 0) {
+            return AutoDirection::UNKNOWN;
+        }
     }
-    return AutoDirection::UNKNOWN;
+    return previous;
 }
 
 }  // namespace cn105_protocol
