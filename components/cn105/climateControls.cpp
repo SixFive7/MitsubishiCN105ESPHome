@@ -764,6 +764,9 @@ void CN105Climate::setFanSpeed(const char* setting) {
     } else {
         wantedSettings.fan = FAN_MAP[0];
     }
+    // Track the last user fan command for the fan grace window (see shouldIgnoreIncomingFan).
+    wantedSettings.last_user_fan = wantedSettings.fan;
+    wantedSettings.last_user_fan_ms = CUSTOM_MILLIS;
 }
 
 void CN105Climate::setVaneSetting(const char* setting) {

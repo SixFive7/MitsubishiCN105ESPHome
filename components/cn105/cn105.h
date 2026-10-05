@@ -425,6 +425,9 @@ namespace esphome {
         // Composed method helpers — vane grace window
         bool shouldIgnoreIncomingVane(const heatpumpSettings& settings) const;
 
+        // Composed method helpers — fan grace window
+        bool shouldIgnoreIncomingFan(const heatpumpSettings& settings) const;
+
         // Composed method helpers — packet building
         void applyVaneToPacket(uint8_t* packet);
         const char* vaneSettingForPacket() const;
