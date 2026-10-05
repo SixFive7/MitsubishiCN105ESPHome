@@ -430,7 +430,8 @@ namespace esphome {
         const char* vaneSettingForPacket() const;
 
         //void statusChanged();
-        void updateAction();
+        void updateAction(bool auto_mode_cycle_refresh = false);
+        void refreshAutoModeAction();
         bool setActionFromHardwareAutoDirection();
         void setActionIfOperatingTo(climate::ClimateAction action);
         void setActionIfOperatingAndCompressorIsActiveTo(climate::ClimateAction action);
@@ -512,6 +513,10 @@ namespace esphome {
 
         // Last heat/cool direction the unit reported in this hardware AUTO session (0x09).
         cn105_protocol::AutoDirection auto_direction_{ cn105_protocol::AutoDirection::UNKNOWN };
+
+        // Hardware AUTO action waiting for its once-per-cycle refresh (refreshAutoModeAction).
+        bool auto_mode_action_due_ = false;
+
         heatpumpFunctions functions;
 
         bool use_temperature_encoding_b_ = false;

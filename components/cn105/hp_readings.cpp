@@ -183,6 +183,9 @@ void CN105Climate::getPowerFromResponsePacket() {
             this->publish_state();
         }
     }
+
+    // The hardware AUTO action is worked out once per poll cycle, here, after the 0x09 reply.
+    this->refreshAutoModeAction();
 }
 
 void CN105Climate::getSettingsFromResponsePacket() {
@@ -451,6 +454,9 @@ void CN105Climate::getHVACOptionsFromResponsePacket() {
 }
 
 void CN105Climate::terminateCycle() {
+    // Units that do not answer 0x09: work the hardware AUTO action out when the cycle ends.
+    this->refreshAutoModeAction();
+
     if (this->shouldSendExternalTemperature_) {
         // We will receive ACK packet for this.
         // Sending WantedSettings must be delayed in this case (lastSend timestamp updated).

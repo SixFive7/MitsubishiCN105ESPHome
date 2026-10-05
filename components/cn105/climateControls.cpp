@@ -596,8 +596,37 @@ bool CN105Climate::setActionFromHardwareAutoDirection() {
     }
 }
 
+/**
+ * Hardware AUTO (HEAT_COOL / AUTO): the unit reports its direction in the 0x09 reply and its
+ * operating flag in the 0x06 reply of the same poll cycle, 0x06 first. Working the action out on
+ * every reply showed a new operating flag with the previous direction (for example "cooling" for
+ * 250 ms when AUTO started heating), and right after a mode change it mixed HA's new mode with
+ * the unit's previous state. updateAction() therefore only marks the AUTO action as due; it is
+ * worked out here once per cycle: after the 0x09 reply, or when the cycle ends for units that do
+ * not answer 0x09. Not while a SET is still waiting to go out, since the replies describe the
+ * unit's previous settings until then.
+ */
+void CN105Climate::refreshAutoModeAction() {
+    if (!this->auto_mode_action_due_) {
+        return;
+    }
+    if (this->mode != climate::CLIMATE_MODE_HEAT_COOL && this->mode != climate::CLIMATE_MODE_AUTO) {
+        this->auto_mode_action_due_ = false;
+        return;
+    }
+    if (this->wantedSettings.hasChanged && !this->wantedSettings.hasBeenSent) {
+        return;
+    }
+    this->auto_mode_action_due_ = false;
+    const climate::ClimateAction previous_action = this->action;
+    this->updateAction(true);
+    if (this->action != previous_action) {
+        this->publish_state();
+    }
+}
+
 //inside the below we could implement an internal only HEAT_COOL doing the math with an offset or something
-void CN105Climate::updateAction() {
+void CN105Climate::updateAction(bool auto_mode_cycle_refresh) {
     ESP_LOGV(TAG, "updating action back to espHome...");
     if (cn105_traits_requires_two_point(this->traits())) {
         this->sanitizeDualSetpoints();
@@ -612,6 +641,10 @@ void CN105Climate::updateAction() {
         this->setActionIfOperatingTo(climate::CLIMATE_ACTION_COOLING);
         break;
     case climate::CLIMATE_MODE_HEAT_COOL:
+        if (!auto_mode_cycle_refresh) {
+            this->auto_mode_action_due_ = true;  // worked out once per poll cycle, see refreshAutoModeAction()
+            return;
+        }
         if (this->setActionFromHardwareAutoDirection()) {
             break;
         }
@@ -632,6 +665,10 @@ void CN105Climate::updateAction() {
         break;
 
     case climate::CLIMATE_MODE_AUTO:
+        if (!auto_mode_cycle_refresh) {
+            this->auto_mode_action_due_ = true;  // worked out once per poll cycle, see refreshAutoModeAction()
+            return;
+        }
         if (this->setActionFromHardwareAutoDirection()) {
             break;
         }

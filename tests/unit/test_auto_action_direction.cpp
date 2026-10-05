@@ -238,3 +238,174 @@ TEST(AutoModeFallbackTest, MfzBitfieldUnitsNeverLearnADirection) {
     }, 24.0f);
     EXPECT_EQ(a[2], Action::HEATING);  // estimate: room below the single setpoint
 }
+
+// ══════════════════════════════════════════════════════════════
+// Poll-cycle ordering: one AUTO action per cycle, after the 0x09 reply
+// (mirror of statusChanged / getPowerFromResponsePacket / refreshAutoModeAction /
+// terminateCycle / publishWantedSettingsStateToHA)
+// ══════════════════════════════════════════════════════════════
+
+namespace {
+
+// A poll cycle asks 0x02, 0x03, 0x06, 0x09 in that order (registerInfoRequests()), so the
+// operating flag (0x06) is processed before the direction (0x09) of the same cycle.
+struct CycleSim {
+    bool once_per_cycle;               // true: this PR; false: the previous revision (every reply)
+    bool hw_auto = true;               // HA mode HEAT_COOL / AUTO
+    bool operating = false;
+    const char* sub_mode = NORMAL;
+    const char* auto_sub_mode = AUTO_OFF;
+    AutoDirection direction = AutoDirection::UNKNOWN;
+    float current = 24.0f;
+    float target = 26.0f;              // single setpoint
+    bool due = false;                  // auto_mode_action_due_
+    bool set_pending = false;          // wantedSettings.hasChanged && !hasBeenSent
+    Action action = Action::IDLE;
+    std::vector<Action> published;     // every action change that reached HA
+
+    void compute() {
+        const Action previous = action;
+        action = autoModeAction(direction, operating, current, target, NAN);
+        if (action != previous) published.push_back(action);
+    }
+    // updateAction() without the refresh flag.
+    void updateAction() {
+        if (!hw_auto) return;
+        if (once_per_cycle) {
+            due = true;
+        } else {
+            compute();
+        }
+    }
+    // refreshAutoModeAction().
+    void refresh() {
+        if (!once_per_cycle || !due || set_pending) return;
+        due = false;
+        compute();
+    }
+    // 0x06 reply -> statusChanged() when the flag changed.
+    void status06(bool op) {
+        if (op == operating) return;
+        operating = op;
+        updateAction();
+    }
+    // 0x09 reply -> getPowerFromResponsePacket().
+    void sub09(const char* sub, const char* asm_value) {
+        const bool changed = std::strcmp(sub, sub_mode) != 0 || std::strcmp(asm_value, auto_sub_mode) != 0;
+        sub_mode = sub;
+        auto_sub_mode = asm_value;
+        if (changed) {
+            direction = next_auto_direction(direction, sub_mode, auto_sub_mode);
+            updateAction();
+        }
+        refresh();
+    }
+    // 0x02 reply with changed settings -> publishStateToHA().
+    void settingsChanged() { updateAction(); }
+    // End of the cycle -> terminateCycle().
+    void endCycle() { refresh(); }
+    // HA switches into HEAT_COOL/AUTO -> control(): mode set, SET queued, no updateAction().
+    void userEntersAuto(float new_target) {
+        hw_auto = true;
+        target = new_target;
+        set_pending = true;
+    }
+    // SET written -> publishWantedSettingsStateToHA() calls updateAction().
+    void setSent() {
+        set_pending = false;
+        updateAction();
+    }
+};
+
+}  // namespace
+
+TEST(AutoModeCycleTest, HeatingStart_NoCoolingBlip) {
+    // Night test 05:22:33: after a cooling session (0x01 then 0x03), AUTO starts heating.
+    // 0x06 at .298 brings operating 0->1 while the kept direction is still COOLING;
+    // 0x09 at .529 brings 0x03 -> 0x02 (AUTO_HEAT) in the same cycle.
+    for (bool once : {false, true}) {
+        CycleSim s{once};
+        s.direction = AutoDirection::COOLING;
+        s.auto_sub_mode = AUTO_LEADER;
+        s.status06(true);
+        s.sub09(NORMAL, AUTO_HEAT);
+        s.endCycle();
+        if (once) {
+            ASSERT_EQ(s.published.size(), 1u);
+            EXPECT_EQ(s.published[0], Action::HEATING);
+        } else {
+            // The previous revision published "cooling" for 250 ms, then "heating".
+            ASSERT_EQ(s.published.size(), 2u);
+            EXPECT_EQ(s.published[0], Action::COOLING);
+            EXPECT_EQ(s.published[1], Action::HEATING);
+        }
+    }
+}
+
+TEST(AutoModeCycleTest, CoolToHeatCool_NoIdleGap) {
+    // Night test 05:02:09-13: COOL (cooling, operating) -> HA heat_cool at setpoint 23, room 24.
+    // In COOL the unit reports 0x00, which clears the direction. Sequence: mode change (SET
+    // queued); in-flight 0x06/0x09 still COOL (0x00); SET written; next cycle 0x02 reports AUTO;
+    // 0x09 reports 0x01 (AUTO_COOL).
+    for (bool once : {false, true}) {
+        CycleSim s{once};
+        s.hw_auto = false;
+        s.operating = true;
+        s.current = 24.0f;
+        s.action = Action::COOLING;  // shown in COOL
+        s.userEntersAuto(23.0f);
+        s.status06(true);
+        s.sub09(NORMAL, AUTO_OFF);
+        s.endCycle();
+        s.setSent();
+        s.settingsChanged();
+        s.status06(true);
+        s.sub09(NORMAL, AUTO_COOL);
+        s.endCycle();
+        EXPECT_EQ(s.action, Action::COOLING);
+        if (once) {
+            EXPECT_TRUE(s.published.empty());  // stays "cooling" throughout
+        } else {
+            // The previous revision showed "idle" for 3.6 s (estimate) until the 0x01 poll.
+            ASSERT_EQ(s.published.size(), 2u);
+            EXPECT_EQ(s.published[0], Action::IDLE);
+            EXPECT_EQ(s.published[1], Action::COOLING);
+        }
+    }
+}
+
+TEST(AutoModeCycleTest, CompressorStopIsShownOnTheSamePoll) {
+    // Night test 05:07:39: operating 1 -> 0 with 0x03 unchanged: idle at that poll's 0x09 reply.
+    CycleSim s{true};
+    s.direction = AutoDirection::COOLING;
+    s.auto_sub_mode = AUTO_LEADER;
+    s.operating = true;
+    s.action = Action::COOLING;
+    s.status06(false);
+    EXPECT_EQ(s.action, Action::COOLING);  // not yet: waiting for the 0x09 reply
+    s.sub09(NORMAL, AUTO_LEADER);
+    EXPECT_EQ(s.action, Action::IDLE);
+}
+
+TEST(AutoModeCycleTest, UnitWithoutA0x09ReplyIsRefreshedAtCycleEnd) {
+    CycleSim s{true};
+    s.current = 25.0f;
+    s.status06(true);
+    EXPECT_EQ(s.action, Action::IDLE);
+    s.endCycle();                      // 0x09 timed out; terminateCycle() refreshes
+    EXPECT_EQ(s.action, Action::HEATING);  // estimate: room 25 below the single setpoint 26
+}
+
+TEST(AutoModeCycleTest, NotWhileASetIsWaiting) {
+    CycleSim s{true};
+    s.direction = AutoDirection::HEATING;
+    s.set_pending = true;
+    s.status06(true);
+    s.sub09(NORMAL, AUTO_HEAT);
+    s.endCycle();
+    EXPECT_EQ(s.action, Action::IDLE);     // replies describe the unit's previous settings
+    s.setSent();
+    s.status06(true);
+    s.sub09(NORMAL, AUTO_HEAT);
+    EXPECT_EQ(s.action, Action::HEATING);
+}
