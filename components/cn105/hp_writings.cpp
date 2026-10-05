@@ -317,7 +317,10 @@ void CN105Climate::publishWantedSettingsStateToHA() {
     }
 
     if (this->wantedSettings.fan != nullptr) {
-        checkFanSettings(this->wantedSettings, false);
+        // Also store the sent speed as the current one: the unit's next report is then
+        // compared with what was sent, so a speed the unit refuses shows up as a change
+        // instead of matching its unchanged previous report.
+        checkFanSettings(this->wantedSettings, true);
     }
 
 

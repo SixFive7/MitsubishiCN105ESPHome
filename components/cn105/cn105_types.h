@@ -191,9 +191,15 @@ struct wantedHeatpumpSettings : heatpumpSettings {
     uint32_t last_user_vane_ms = 0;        // timestamp of last user vane command
     uint32_t last_user_temperature_ms = 0; // timestamp of last user temperature command
 
+    // Last user-commanded fan speed: only used for a grace window that tells a
+    // report predating the SET from a speed the unit refused. Never re-sent.
+    const char* last_user_fan = nullptr;
+    uint32_t last_user_fan_ms = 0;         // timestamp of last user fan command
+
     void resetSettings() {
         // Preserve last_user_* fields across reset — they represent the user's
-        // intended state and should be re-sent on subsequent SET packets.
+        // intended state. The vane is re-sent on subsequent SET packets; the
+        // temperature and the fan speed only feed their grace windows.
         heatpumpSettings::resetSettings();
         hasChanged = false;
         hasBeenSent = false;
